@@ -1,0 +1,22 @@
+name: voxel51/mose-v2
+type: dataset
+author: Henghuiding Liu et al.
+version: 2.0.0
+url: https://github.com/voxel51/mose-v2
+source: https://huggingface.co/datasets/FudanCVL/MOSEv2
+license: https://creativecommons.org/licenses/by-nc-sa/4.0/
+description: >
+  MOSEv2 — a large-scale Video Object Segmentation benchmark with 5,024 videos,
+  10,074 annotated objects, and 701,976 high-quality segmentation masks across
+  200 categories. Covers challenging real-world scenarios including heavy
+  occlusions, small objects, adverse weather, low-light, and camouflage.
+fiftyone:
+  version: "*"
+supports_partial_downloads: false
+tags:
+  - image
+  - segmentation
+  - video-object-segmentation
+splits:
+  - train
+  - validation
