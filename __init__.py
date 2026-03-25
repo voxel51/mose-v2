@@ -1,15 +1,18 @@
 """
 MOSEv2 Dataset Loader for FiftyOne
 
-MOSEv2 (https://huggingface.co/datasets/FudanCVL/MOSEv2) is a large-scale
-Video Object Segmentation benchmark. The dataset lives on HuggingFace as
-tar.gz archives of JPEG frame sequences and indexed PNG annotation masks.
+MOSEv2 is a large-scale Video Object Segmentation benchmark. Archives are
+distributed via Google Drive as tar.gz files of JPEG frame sequences and
+indexed PNG annotation masks.
 
 After extraction the layout is:
     dataset_dir/
-        valid/
+        train/   (and/or valid/)
             JPEGImages/<sequence_name>/{00000,00001,...}.jpg
             Annotations/<sequence_name>/{00000,00001,...}.png
+
+A symlink ``validation`` -> ``valid`` is created when the validation split
+is present so FiftyOne's split directory checks match on-disk layout.
 
 Annotation masks are 8-bit indexed PNGs where pixel value 0 is background
 and pixel value N is object instance N.
@@ -17,7 +20,7 @@ and pixel value N is object instance N.
 Each FiftyOne sample represents one video frame. Samples carry:
     - sequence_id  (str)  — the video sequence name
     - frame_number (int)  — 0-based frame index
-    - tags         [str]  — ["validation", <sequence_name>]
+    - tags         [str]  — [split name, sequence_name]
     - ground_truth        — fo.Segmentation with mask_path pointing to the PNG
 """
 
@@ -26,14 +29,35 @@ from glob import glob
 
 import fiftyone as fo
 
-
-REPO_ID = "FudanCVL/MOSEv2"
-
 # FiftyOne split name  ->  folder name inside the tar / on disk
 SPLIT_TO_FOLDER = {
     "train": "train",
     "validation": "valid",
 }
+
+# Google Drive file IDs (share links: drive.google.com/file/d/<id>/...)
+DRIVE_FILE_IDS = {
+    "train": "1o8Nd9t6oT_ZXmWHlImMzv5i8mn5vwRHm",
+    "validation": "1iO8dScuVsGXLnrVggVT6C-wSGzN5tiCq",
+}
+
+
+def _drive_download_url(file_id):
+    return f"https://drive.google.com/uc?id={file_id}"
+
+
+def _ensure_validation_symlink(dataset_dir):
+    """FiftyOne expects split folder ``validation``; data lives under ``valid``."""
+    valid_path = os.path.join(dataset_dir, "valid")
+    validation_path = os.path.join(dataset_dir, "validation")
+    if not os.path.isdir(valid_path):
+        return
+    if os.path.lexists(validation_path):
+        return
+    try:
+        os.symlink("valid", validation_path)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +66,7 @@ SPLIT_TO_FOLDER = {
 
 
 def download_and_prepare(dataset_dir, split=None, **kwargs):
-    """Download and extract the requested split from HuggingFace Hub.
+    """Download and extract the requested split from Google Drive.
 
     Args:
         dataset_dir: directory managed by FiftyOne where data will be stored
@@ -56,12 +80,12 @@ def download_and_prepare(dataset_dir, split=None, **kwargs):
         is None.
     """
     try:
-        from huggingface_hub import hf_hub_download
-    except ImportError:
+        import gdown
+    except ImportError as e:
         raise ImportError(
-            "huggingface_hub is required to download MOSEv2. "
-            "Install it with: pip install huggingface_hub"
-        )
+            "gdown is required to download MOSEv2 from Google Drive. "
+            "Install it with: pip install gdown"
+        ) from e
 
     if split is not None and split not in SPLIT_TO_FOLDER:
         raise ValueError(
@@ -81,17 +105,22 @@ def download_and_prepare(dataset_dir, split=None, **kwargs):
             tar_filename = f"{folder_name}.tar.gz"
             tar_path = os.path.join(dataset_dir, tar_filename)
 
-            if not os.path.exists(tar_path):
-                print(f"Downloading {REPO_ID}/{tar_filename} from HuggingFace Hub...")
-                hf_hub_download(
-                    repo_id=REPO_ID,
-                    repo_type="dataset",
-                    filename=tar_filename,
-                    local_dir=dataset_dir,
-                )
+            if os.path.isfile(tar_path) and os.path.getsize(tar_path) > 0:
+                print(f"{tar_filename} already exists, skipping download")
+            else:
+                file_id = DRIVE_FILE_IDS[s]
+                url = _drive_download_url(file_id)
+                print(f"Downloading {tar_filename} from Google Drive...")
+                gdown.download(url, tar_path, quiet=False, fuzzy=False)
+                if not os.path.isfile(tar_path) or os.path.getsize(tar_path) == 0:
+                    raise RuntimeError(
+                        f"Download failed or empty file: {tar_path}"
+                    )
+                print(f"Downloaded {tar_filename}")
 
             print(f"Extracting {tar_filename}...")
             import tarfile
+
             with tarfile.open(tar_path, "r:gz") as tar:
                 tar.extractall(dataset_dir)
 
@@ -103,6 +132,9 @@ def download_and_prepare(dataset_dir, split=None, **kwargs):
             print(f"Extraction complete: {extract_dir}")
         else:
             print(f"Found existing data at {extract_dir}, skipping download.")
+
+        if folder_name == "valid":
+            _ensure_validation_symlink(dataset_dir)
 
         total_frames += _count_frames(jpeg_dir)
 

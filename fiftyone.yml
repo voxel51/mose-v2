@@ -3,7 +3,9 @@ type: dataset
 author: Henghuiding Liu et al.
 version: 2.0.0
 url: https://github.com/voxel51/mose-v2
-source: https://huggingface.co/datasets/FudanCVL/MOSEv2
+source: >
+  https://github.com/FudanCVL/MOSEv2 (MOSEv2; train/validation archives via Google Drive,
+  see DRIVE_FILE_IDS in __init__.py)
 license: https://creativecommons.org/licenses/by-nc-sa/4.0/
 description: >
   MOSEv2 — a large-scale Video Object Segmentation benchmark with 5,024 videos,
