@@ -26,16 +26,17 @@ Each FiftyOne sample represents one video frame. Samples carry:
 
 import os
 from glob import glob
+import tarfile
 
 import fiftyone as fo
 
-# FiftyOne split name  ->  folder name inside the tar / on disk
+# FiftyOne split name: MOSEv2 split name as downloaded
 SPLIT_TO_FOLDER = {
     "train": "train",
     "validation": "valid",
 }
 
-# Google Drive file IDs (share links: drive.google.com/file/d/<id>/...)
+# Google Drive file IDs
 DRIVE_FILE_IDS = {
     "train": "1o8Nd9t6oT_ZXmWHlImMzv5i8mn5vwRHm",
     "validation": "1iO8dScuVsGXLnrVggVT6C-wSGzN5tiCq",
@@ -46,138 +47,11 @@ def _drive_download_url(file_id):
     return f"https://drive.google.com/uc?id={file_id}"
 
 
-def _ensure_validation_symlink(dataset_dir):
-    """FiftyOne expects split folder ``validation``; data lives under ``valid``."""
-    valid_path = os.path.join(dataset_dir, "valid")
-    validation_path = os.path.join(dataset_dir, "validation")
-    if not os.path.isdir(valid_path):
-        return
-    if os.path.lexists(validation_path):
-        return
-    try:
-        os.symlink("valid", validation_path)
-    except OSError:
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Zoo interface — called by fiftyone.zoo.load_zoo_dataset
-# ---------------------------------------------------------------------------
-
-
-def download_and_prepare(dataset_dir, split=None, **kwargs):
-    """Download and extract the requested split from Google Drive.
-
-    Args:
-        dataset_dir: directory managed by FiftyOne where data will be stored
-        split (None): split to download; ``"train"`` or ``"validation"``.
-            Pass ``None`` to download all available splits.
-
-    Returns:
-        (dataset_type, num_samples, classes) — dataset_type is always None
-        (signals that ``load_dataset`` drives loading), num_samples is the
-        total number of frames across all downloaded sequences, and classes
-        is None.
-    """
-    try:
-        import gdown
-    except ImportError as e:
-        raise ImportError(
-            "gdown is required to download MOSEv2 from Google Drive. "
-            "Install it with: pip install gdown"
-        ) from e
-
-    if split is not None and split not in SPLIT_TO_FOLDER:
-        raise ValueError(
-            f"Invalid split '{split}'. Supported splits: {list(SPLIT_TO_FOLDER)}"
-        )
-
-    os.makedirs(dataset_dir, exist_ok=True)
-    splits_to_download = [split] if split else list(SPLIT_TO_FOLDER)
-
-    total_frames = 0
-    for s in splits_to_download:
-        folder_name = SPLIT_TO_FOLDER[s]
-        extract_dir = os.path.join(dataset_dir, folder_name)
-        jpeg_dir = os.path.join(extract_dir, "JPEGImages")
-
-        if not os.path.exists(jpeg_dir):
-            tar_filename = f"{folder_name}.tar.gz"
-            tar_path = os.path.join(dataset_dir, tar_filename)
-
-            if os.path.isfile(tar_path) and os.path.getsize(tar_path) > 0:
-                print(f"{tar_filename} already exists, skipping download")
-            else:
-                file_id = DRIVE_FILE_IDS[s]
-                url = _drive_download_url(file_id)
-                print(f"Downloading {tar_filename} from Google Drive...")
-                gdown.download(url, tar_path, quiet=False, fuzzy=False)
-                if not os.path.isfile(tar_path) or os.path.getsize(tar_path) == 0:
-                    raise RuntimeError(
-                        f"Download failed or empty file: {tar_path}"
-                    )
-                print(f"Downloaded {tar_filename}")
-
-            print(f"Extracting {tar_filename}...")
-            import tarfile
-
-            with tarfile.open(tar_path, "r:gz") as tar:
-                tar.extractall(dataset_dir)
-
-            if not os.path.exists(jpeg_dir):
-                raise RuntimeError(
-                    f"Extraction finished but expected directory not found: {jpeg_dir}. "
-                    "The archive may have an unexpected layout."
-                )
-            print(f"Extraction complete: {extract_dir}")
-        else:
-            print(f"Found existing data at {extract_dir}, skipping download.")
-
-        if folder_name == "valid":
-            _ensure_validation_symlink(dataset_dir)
-
-        total_frames += _count_frames(jpeg_dir)
-
-    return None, total_frames, None
-
-
-def load_dataset(dataset, dataset_dir, split=None, **kwargs):
-    """Load the dataset into the given FiftyOne dataset.
-
-    Each video frame becomes one :class:`fiftyone.core.sample.Sample`.
-    Samples are tagged with the split name and their sequence name so they
-    can be filtered with :meth:`Dataset.match_tags`, grouped with
-    ``dataset.group_by("sequence_id", order_by="frame_number")``, etc.
-
-    Args:
-        dataset: :class:`fiftyone.core.dataset.Dataset` to populate
-        dataset_dir: directory where the data was downloaded
-        split (None): split to load; ``"train"`` or ``"validation"``.
-            Pass ``None`` to load all available splits.
-    """
-    if split is not None and split not in SPLIT_TO_FOLDER:
-        raise ValueError(
-            f"Invalid split '{split}'. Supported splits: {list(SPLIT_TO_FOLDER)}"
-        )
-
-    splits_to_load = [split] if split else list(SPLIT_TO_FOLDER)
-    for s in splits_to_load:
-        folder_name = SPLIT_TO_FOLDER[s]
-        split_dir = os.path.join(dataset_dir, folder_name)
-        if not os.path.exists(split_dir):
-            raise FileNotFoundError(
-                f"Split directory not found: {split_dir}. "
-                "Run download_and_prepare first."
-            )
-        _load_image_dataset(dataset, split_dir, split_tag=s)
-
-    dataset.persistent = True
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
+def _ensure_symlink(dataset_dir, from_name, to_name):
+    from_path = os.path.join(dataset_dir, from_name)
+    to_path = os.path.join(dataset_dir, to_name)
+    if not os.path.lexists(to_path):
+        os.symlink(from_path, to_path)
 
 def _count_frames(jpeg_dir):
     count = 0
@@ -223,3 +97,117 @@ def _load_image_dataset(dataset, split_dir, split_tag):
 
     dataset.add_samples(samples)
     print(f"Added {len(samples)} samples.")
+
+
+# ---------------------------------------------------------------------------
+# Zoo interface — called by fiftyone.zoo.load_zoo_dataset
+# ---------------------------------------------------------------------------
+
+
+def download_and_prepare(dataset_dir, split="train", **kwargs):
+    """Download and extract the requested split from the Google Drive source
+
+    Args:
+        dataset_dir: directory managed by FiftyOne where data will be stored
+        split (None): split to download; ``"train"`` or ``"validation"``.
+            Pass ``None`` to download all available splits.
+
+    Returns:
+        (dataset_type, num_samples, classes) — dataset_type is always None
+        (signals that ``load_dataset`` drives loading), num_samples is the
+        total number of frames across all downloaded sequences, and classes
+        is None.
+    """
+    try:
+        import gdown
+    except ImportError as e:
+        raise ImportError(
+            "gdown is required to download MOSEv2 from Google Drive. "
+            "Install it with: pip install gdown"
+        ) from e
+
+    if split is not None and split not in DRIVE_FILE_IDS:
+        raise ValueError(
+            f"Invalid split '{split}'. Supported splits: {list(DRIVE_FILE_IDS.keys())}"
+        )
+
+    os.makedirs(dataset_dir, exist_ok=True)
+    splits_to_download = [split] if split else list(DRIVE_FILE_IDS.keys())
+
+    total_frames = 0
+    for split in splits_to_download:
+        folder_name = SPLIT_TO_FOLDER[split]
+        extract_dir = os.path.join(dataset_dir, folder_name)
+        jpeg_dir = os.path.join(extract_dir, "JPEGImages")
+
+        if not os.path.exists(jpeg_dir):
+            tar_filename = f"{folder_name}.tar.gz"
+            tar_path = os.path.join(dataset_dir, tar_filename)
+
+            if os.path.isfile(tar_path) and os.path.getsize(tar_path) > 0:
+                print(f"{tar_filename} already exists, skipping download")
+            else:
+                file_id = DRIVE_FILE_IDS[split]
+                url = _drive_download_url(file_id)
+                print(f"Downloading {tar_filename} from Google Drive...")
+                gdown.download(url, tar_path, quiet=False, fuzzy=False)
+                if not os.path.isfile(tar_path) or os.path.getsize(tar_path) == 0:
+                    raise RuntimeError(
+                        f"Download failed or empty file: {tar_path}"
+                    )
+                print(f"Downloaded {tar_filename}")
+
+            print(f"Extracting {tar_filename}...")
+
+            with tarfile.open(tar_path, "r:gz") as tar:
+                tar.extractall(dataset_dir)
+
+            if not os.path.exists(jpeg_dir):
+                raise RuntimeError(
+                    f"Extraction finished but expected directory not found: {jpeg_dir}. "
+                    "The archive may have an unexpected layout."
+                )
+            print(f"Extraction complete: {extract_dir}")
+        else:
+            print(f"Found existing data at {extract_dir}, skipping download.")
+
+        if folder_name != split:
+            _ensure_symlink(dataset_dir, from_name=folder_name, to_name=split)
+
+        total_frames += _count_frames(jpeg_dir)
+
+    return None, total_frames, None
+
+
+def load_dataset(dataset, dataset_dir, split=None, **kwargs):
+    """Load the dataset into the given FiftyOne dataset.
+
+    Each video frame becomes one :class:`fiftyone.core.sample.Sample`.
+    Samples are tagged with the split name and their sequence name so they
+    can be filtered with :meth:`Dataset.match_tags`, grouped with
+    ``dataset.group_by("sequence_id", order_by="frame_number")``, etc.
+
+    Args:
+        dataset: :class:`fiftyone.core.dataset.Dataset` to populate
+        dataset_dir: directory where the data was downloaded
+        split (None): split to load; ``"train"`` or ``"validation"``.
+            Pass ``None`` to load all available splits.
+    """
+    if split is not None and split not in SPLIT_TO_FOLDER:
+        raise ValueError(
+            f"Invalid split '{split}'. Supported splits: {list(SPLIT_TO_FOLDER)}"
+        )
+
+    splits_to_load = [split] if split else list(SPLIT_TO_FOLDER)
+    for split in splits_to_load:
+        folder_name = SPLIT_TO_FOLDER[split]
+        split_dir = os.path.join(dataset_dir, folder_name)
+        if not os.path.exists(split_dir):
+            raise FileNotFoundError(
+                f"Split directory not found: {split_dir}. "
+                "Run download_and_prepare first."
+            )
+        _load_image_dataset(dataset, split_dir, split_tag=split)
+
+    dataset.persistent = True
+

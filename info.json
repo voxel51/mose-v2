@@ -2,7 +2,16 @@
     "name": "voxel51/mose-v2",
     "zoo_dataset": "fiftyone.zoo.datasets.RemoteZooDataset",
     "dataset_type": null,
-    "num_samples": 0,
+    "num_samples": 311843,
     "url": "https://github.com/voxel51/mose-v2",
-    "downloaded_splits": {}
+    "downloaded_splits": {
+        "train": {
+            "split": "train",
+            "num_samples": 311843
+        },
+        "validation": {
+            "split": "validation",
+            "num_samples": 66526
+        }
+    }
 }

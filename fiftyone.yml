@@ -22,3 +22,6 @@ tags:
 splits:
   - train
   - validation
+size_samples:
+  - train: 311843
+  - validation: 66526
