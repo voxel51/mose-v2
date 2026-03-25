@@ -17,8 +17,9 @@ fiftyone:
 supports_partial_downloads: false
 tags:
   - image
+  - group
   - segmentation
-  - video-object-segmentation
+  - video-instance-segmentation
 splits:
   - train
   - validation
