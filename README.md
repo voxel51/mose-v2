@@ -12,38 +12,78 @@
 
 </div>
 
-FiftyOne Dataset with the MOSEv2 large-scale video object segmentation benchmark.
+A [FiftyOne remote zoo dataset](https://docs.voxel51.com/dataset_zoo/remote.html) integration for **MOSEv2**, a large-scale video object segmentation benchmark: thousands of videos, instance masks, and diverse real-world conditions (occlusion, small objects, weather, low light, camouflage, etc.). See the [project site](https://mose.video/) and [upstream repo](https://github.com/FudanCVL/MOSEv2) for the full benchmark description.
 
-## Details
 
-- Original website / project: https://mose.video/
-- HuggingFace: https://huggingface.co/datasets/FudanCVL/MOSEv2
-- Archives (train / validation): Google Drive — file IDs live in `__init__.py` as `DRIVE_FILE_IDS`
-- Citation: use the BibTeX from the [official MOSEv2 repository](https://github.com/FudanCVL/MOSEv2).
+### Source and citation
 
-- Tags: image, segmentation, video-object-segmentation
-- Supported splits: train, validation
+- **Website**: [mose.video](https://mose.video/)
+- **GitHub**: [MOSEv2](https://github.com/FudanCVL/MOSEv2)
+- **Hugging Face (dataset card)**: [FudanCVL/MOSEv2](https://huggingface.co/datasets/FudanCVL/MOSEv2)
+- **License**: Original MOVEv2 terms: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+- **Citation**: See also other related citations from the [official MOSEv2 website](https://mose.video/#citation).
+```
+@article{MOSEv2,
+  title={{MOSEv2}: A More Challenging Dataset for Video Object Segmentation in Complex Scenes},
+  author={Ding, Henghui and Ying, Kaining and Liu, Chang and He, Shuting and Jiang, Xudong and Jiang, Yu-Gang and Torr, Philip HS and Bai, Song},
+  journal={arXiv preprint arXiv:2508.05630},
+  year={2025}
+}
+```
 
-To download archives via the Dataset Zoo you need [gdown](https://github.com/wkentaro/gdown):
+## Quick start
+
+Installation
 
 ```bash
-pip install gdown
+pip install fiftyone
+pip install gdown   # required for Google Drive download; see also requirements.txt
 ```
 
-## Example Usage
+Load via the FiftyOne Dataset Zoo
 
-```
+```python
 import fiftyone as fo
 import fiftyone.zoo as foz
 
 dataset = foz.load_zoo_dataset(
     "https://github.com/voxel51/mose-v2",
-    split="train",
+    split="train",  # or "validation"
+    max_samples=1000,  # optional, for quicker exploration
 )
 
 session = fo.launch_app(dataset)
-session.wait()
+
+# For a dynamic Grouped view
+grouped_view = dataset.group_by("sequence_id", order_by="frame_number")
 ```
+
+## Notes:
+
+- Downloads **train** and **validation** archives from Google Drive (file IDs are in `__init__.py` as `DRIVE_FILE_IDS`).
+- Extracts `train/` and `valid/` under the FiftyOne-managed dataset directory. A symlink `validation` → `valid` is created when needed so split names match FiftyOne’s expectations.
+```text
+dataset_dir/
+  train/
+    JPEGImages/<sequence_name>/{00000,00001,...}.jpg
+    Annotations/<sequence_name>/{00000,00001,...}.png
+  valid/
+    JPEGImages/<sequence_name>/{00000,00001,...}.jpg
+    Annotations/<sequence_name>/00000.png
+```
+- Registers **one sample per video frame**. Segmentation is stored as an indexed PNG per frame (`ground_truth`: `fo.Segmentation` with `mask_path`).
+- Annotation masks are **8-bit indexed PNGs**: pixel value `0` is background; value `N` is object instance `N`.
+
+## Sample fields
+
+| Field | Role |
+|-------|------|
+| `filepath` | Path to the JPEG frame |
+| `sequence_id` | Video sequence name |
+| `frame_number` | Zero-based frame index |
+| `tags` | Split and sequence (e.g. `train`, sequence id) |
+| `ground_truth` | `Segmentation` with `mask_path` to the indexed PNG |
+
 
 ## Statistics
 
@@ -52,24 +92,13 @@ session.wait()
 | train       | 3,666     | 311,843       | 311,843                |
 | validation  | 433       | 66,526        | 433 (first frame only) |
 
-Validation frame counts were taken from a full `valid/JPEGImages` tree (433 sequence folders, all `*.jpg` under each). Recompute anytime with `python scripts/count_val_frames.py /path/to/parent` where `parent/valid/JPEGImages/...` matches the MOSE layout.
 
 ## Visualize
 
 Each image is tagged with its **split** and with its **sequence** name — frames that share a `sequence_id` belong to the same clip.
 
-Segmentation is stored in the `ground_truth` field as a `Segmentation` (indexed PNG; instance id per pixel).
-
-Below is the dataset in **image** format (one sample per frame):
+For a **video-like** browser in the App, use a dynamic grouped view — one group per sequence, frames ordered by `frame_number`.
 
 ![MOSEv2 sample visualization (grid)](assets/mose-grid.png)
-
-For a **video-like** browser in the App, use a dynamic grouped view — one group per sequence, frames ordered by `frame_number` (same idea as in [`test_mose.py`](test_mose.py)):
-
-```
-grouped = dataset.group_by("sequence_id", order_by="frame_number")
-session = fo.launch_app(grouped)
-session.wait()
-```
 
 ![MOSEv2 grouped / carousel view](assets/mose-carousel.png)
