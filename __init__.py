@@ -98,24 +98,26 @@ def _segmentation_to_detections(
     return fo.Detections(detections=detections)
 
 
-def _load_image_dataset(dataset, split_dir, split_tag):
+def _load_image_dataset(dataset, split_dir, split_tag, max_samples=None):
     """Add all frames from a split directory to *dataset*.
 
     Args:
         dataset: FiftyOne dataset to populate
         split_dir: path to the extracted split folder (contains JPEGImages/ and Annotations/)
         split_tag: string tag to attach to every sample (e.g. "validation")
+        max_samples (None): if set, stop after this many samples
     """
     jpeg_dir = os.path.join(split_dir, "JPEGImages")
     annot_dir = os.path.join(split_dir, "Annotations")
 
     sequences = sorted(os.listdir(jpeg_dir))
-    print(f"Loading {len(sequences)} sequences from {split_dir}...")
 
     samples = []
     for seq in sequences:
         frame_paths = sorted(glob(os.path.join(jpeg_dir, seq, "*.jpg")))
         for frame_path in frame_paths:
+            if max_samples is not None and len(samples) >= max_samples:
+                break
             stem = os.path.splitext(os.path.basename(frame_path))[0]
             frame_number = int(stem)
             mask_path = os.path.join(annot_dir, seq, f"{stem}.png")
@@ -222,7 +224,7 @@ def download_and_prepare(dataset_dir, split="train", **kwargs):
     return None, total_frames, None
 
 
-def load_dataset(dataset, dataset_dir, split=None, **kwargs):
+def load_dataset(dataset, dataset_dir, split=None, max_samples=None, **kwargs):
     """Load the dataset into the given FiftyOne dataset.
 
     Each video frame becomes one :class:`fiftyone.core.sample.Sample`.
@@ -250,6 +252,8 @@ def load_dataset(dataset, dataset_dir, split=None, **kwargs):
                 f"Split directory not found: {split_dir}. "
                 "Run download_and_prepare first."
             )
-        _load_image_dataset(dataset, split_dir, split_tag=split)
+        _load_image_dataset(
+            dataset, split_dir, split_tag=split, max_samples=max_samples
+        )
 
     dataset.persistent = True
