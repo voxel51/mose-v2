@@ -21,12 +21,18 @@ Each FiftyOne sample represents one video frame. Samples carry:
     - sequence_id  (str)  — the video sequence name
     - frame_number (int)  — 0-based frame index
     - tags         [str]  — [split name, sequence_name]
-    - ground_truth        — fo.Segmentation with mask_path pointing to the PNG
+    - ground_truth        — fo.Detections converted from the indexed PNG mask
+                           (each Detection has label=str(obj_id-1), bounding_box,
+                            mask, and index=obj_id-1)
 """
 
 import os
 from glob import glob
 import tarfile
+
+import cv2
+import numpy as np
+from PIL import Image
 
 import fiftyone as fo
 
@@ -53,11 +59,43 @@ def _ensure_symlink(dataset_dir, from_name, to_name):
     if not os.path.lexists(to_path):
         os.symlink(from_path, to_path)
 
+
 def _count_frames(jpeg_dir):
     count = 0
     for seq in os.listdir(jpeg_dir):
         count += len(glob(os.path.join(jpeg_dir, seq, "*.jpg")))
     return count
+
+
+def _segmentation_to_detections(
+    segmentation: fo.Segmentation,
+) -> fo.Detections:
+    """Convert an indexed-PNG fo.Segmentation to fo.Detections.
+
+    MOSE annotation masks are 8-bit indexed PNGs where pixel value = object
+    instance ID (0 = background). This mirrors what the DAVIS loader produces
+    natively, so the propagation operator sees the same input format.
+    """
+    mask = np.array(Image.open(segmentation.mask_path))  # type: ignore[arg-type]
+    h, w = mask.shape
+
+    detections = []
+    for obj_id in np.unique(mask):
+        if obj_id == 0:
+            continue  # background
+        binary = (mask == obj_id).astype(np.uint8)
+        x, y, bw, bh = cv2.boundingRect(binary)
+        if bw == 0 or bh == 0:
+            continue
+        detections.append(
+            fo.Detection(
+                label=str(obj_id - 1),
+                bounding_box=[x / w, y / h, bw / w, bh / h],
+                mask=binary[y : y + bh, x : x + bw],
+                index=obj_id - 1,
+            )
+        )
+    return fo.Detections(detections=detections)
 
 
 def _load_image_dataset(dataset, split_dir, split_tag):
@@ -91,7 +129,9 @@ def _load_image_dataset(dataset, split_dir, split_tag):
 
             if os.path.exists(mask_path):
                 # Indexed PNG: pixel value = object instance ID (0 = background)
-                sample["ground_truth"] = fo.Segmentation(mask_path=mask_path)
+                sample["ground_truth"] = _segmentation_to_detections(
+                    fo.Segmentation(mask_path=mask_path)
+                )
 
             samples.append(sample)
 
@@ -151,7 +191,10 @@ def download_and_prepare(dataset_dir, split="train", **kwargs):
                 url = _drive_download_url(file_id)
                 print(f"Downloading {tar_filename} from Google Drive...")
                 gdown.download(url, tar_path, quiet=False, fuzzy=False)
-                if not os.path.isfile(tar_path) or os.path.getsize(tar_path) == 0:
+                if (
+                    not os.path.isfile(tar_path)
+                    or os.path.getsize(tar_path) == 0
+                ):
                     raise RuntimeError(
                         f"Download failed or empty file: {tar_path}"
                     )
@@ -210,4 +253,3 @@ def load_dataset(dataset, dataset_dir, split=None, **kwargs):
         _load_image_dataset(dataset, split_dir, split_tag=split)
 
     dataset.persistent = True
-
