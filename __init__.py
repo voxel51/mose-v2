@@ -111,34 +111,48 @@ def _load_image_dataset(dataset, split_dir, split_tag, max_samples=None):
     annot_dir = os.path.join(split_dir, "Annotations")
 
     sequences = sorted(os.listdir(jpeg_dir))
+    print(f"Loading {len(sequences)} sequences from {split_dir}...")
 
-    samples = []
+    BATCH_SIZE = 500
+    batch = []
+    total = 0
+
+    def _flush():
+        nonlocal total
+        dataset.add_samples(batch)
+        total += len(batch)
+        batch.clear()
+
     for seq in sequences:
+        if max_samples is not None and total + len(batch) >= max_samples:
+            break
         frame_paths = sorted(glob(os.path.join(jpeg_dir, seq, "*.jpg")))
         for frame_path in frame_paths:
-            if max_samples is not None and len(samples) >= max_samples:
+            if max_samples is not None and total + len(batch) >= max_samples:
                 break
             stem = os.path.splitext(os.path.basename(frame_path))[0]
-            frame_number = int(stem)
             mask_path = os.path.join(annot_dir, seq, f"{stem}.png")
 
             sample = fo.Sample(
                 filepath=frame_path,
                 tags=[split_tag, seq],
                 sequence_id=seq,
-                frame_number=frame_number,
+                frame_number=int(stem),
             )
-
             if os.path.exists(mask_path):
-                # Indexed PNG: pixel value = object instance ID (0 = background)
                 sample["ground_truth"] = _segmentation_to_detections(
                     fo.Segmentation(mask_path=mask_path)
                 )
+            batch.append(sample)
 
-            samples.append(sample)
+            if len(batch) >= BATCH_SIZE:
+                _flush()
+                print(f"  {total} samples added...")
 
-    dataset.add_samples(samples)
-    print(f"Added {len(samples)} samples.")
+    if batch:
+        _flush()
+
+    print(f"  {total} samples added.")
 
 
 # ---------------------------------------------------------------------------
